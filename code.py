@@ -10,12 +10,12 @@ import busio
 import microcontroller
 import socketpool
 import wifi
-from adafruit_bme280.basic import Adafruit_BME280_I2C as BME280
 from adafruit_datetime import datetime
 from adafruit_max1704x import MAX17048
-from adafruit_pm25.i2c import PM25_I2C
 from adafruit_scd4x import SCD4X
 from adafruit_scd30 import SCD30
+from adafruit_sgp30 import Adafruit_SGP30 as SGP30
+# from adafruit_esp32s2tft import ESP32S2TFT
 
 DEVICE_ID = os.getenv("DEVICE_ID")
 SUPABASE_POST_URL = os.getenv("SUPABASE_POST_URL")
@@ -24,6 +24,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 # This controls how often your device sends data to the database
 LOOP_TIME_S = 60
 
+# esp32s2tft = ESP32S2TFT(default_bg=0xFFFF00, scale=2, use_network=False)
 
 # Prepare to use the internet 💫
 def initialize_wifi_connection():
@@ -42,13 +43,7 @@ requests = adafruit_requests.Session(pool, ssl.create_default_context())
 def initialize_sensors():
     """Initialize connections to each possible sensor, if connected"""
     i2c = busio.I2C(board.SCL, board.SDA)
-
-    try:
-        air_quality_sensor = PM25_I2C(i2c)
-    except Exception:
-        print("No air quality sensor found")
-        air_quality_sensor = None
-
+    
     try:
         co2_sensor = SCD4X(i2c)
         co2_sensor.start_periodic_measurement()
@@ -57,10 +52,12 @@ def initialize_sensors():
         co2_sensor = None
 
     try:
-        temperature_sensor = BME280(i2c)
+        gas_sensor = SGP30(i2c)
+        # gas_sensor.set_iaq_baseline(0x8973, 0x8AAE)
+        # gas_sensor.set_iaq_relative_humidity(celsius=22.1, relative_humidity=44)
     except Exception:
-        print("No temperature sensor found")
-        temperature_sensor = None
+        print("No gas sensor found")
+        gas_sensor = None
 
     try:
         battery_sensor = MAX17048(i2c)
@@ -68,7 +65,7 @@ def initialize_sensors():
         print("No battery sensor found")
         battery_sensor = None
 
-    return air_quality_sensor, co2_sensor, temperature_sensor, battery_sensor
+    return co2_sensor, battery_sensor, gas_sensor
 
 
 def post_to_db(sensor_data: dict):
@@ -113,24 +110,11 @@ def post_to_db(sensor_data: dict):
         print("Post complete")
 
 
-def collect_data(air_quality_sensor, co2_sensor, temperature_sensor, battery_sensor):
+def collect_data( co2_sensor, battery_sensor, gas_sensor):
     """Get the latest data from the sensors, display it, and record it in the cloud."""
     # Python3 kwarg-style dict concatenation syntax doesn't seem to work in CircuitPython,
     # so we have to use mutation and update the dict as we go along
     all_sensor_data = {}
-
-    if air_quality_sensor:
-        # This sensor collects the following data:
-        # PM1.0, PM2.5 and PM10.0 concentration in both standard (at sea level) & enviromental units (at ambient pressure)
-        # Particulate matter per 0.1L air, categorized into 0.3um, 0.5um, 1.0um, 2.5um, 5.0um and 10um size bins
-
-        # The data is structured as a dictionary with keys of this format:
-        # "pmXX standard"   : PMX.X concentration at standard pressure (sea level)
-        # "pmXX env"        : PMX.X concentration at ambient pressure
-        # "particles XXum"  : Particulate matter of size > X.Xum per 0.1L air
-        air_quality_data = air_quality_sensor.read() if air_quality_sensor else {}
-
-        all_sensor_data.update(air_quality_data)
 
     if battery_sensor:
         all_sensor_data.update(
@@ -149,15 +133,11 @@ def collect_data(air_quality_sensor, co2_sensor, temperature_sensor, battery_sen
             }
         )
 
-    if temperature_sensor:
+    if gas_sensor:
         all_sensor_data.update(
             {
-                # Note: the CO2 sensor also collects temperature and relative humidity
-                # If you have both, we default to the data collected by this temperature sensor
-                "temperature_c": temperature_sensor.temperature,
-                "humidity_relative": temperature_sensor.relative_humidity,
-                "pressure_hpa": temperature_sensor.pressure,
-                "altitude_m": temperature_sensor.altitude,
+                "eco2_ppm": gas_sensor.eCO2,
+                "tvoc_ppb": gas_sensor.TVOC,
             }
         )
 
@@ -166,15 +146,18 @@ def collect_data(air_quality_sensor, co2_sensor, temperature_sensor, battery_sen
 
 
 (
-    air_quality_sensor,
     co2_sensor,
-    temperature_sensor,
     battery_sensor,
+    gas_sensor
 ) = initialize_sensors()
+
+# esp32s2tft.add_text(
+#     text="ESP32-S2", text_position=(10, 10), text_scale=2, text_color=0xFF00FF
+# )
 
 while True:
     try:
-        collect_data(air_quality_sensor, co2_sensor, temperature_sensor, battery_sensor)
+        collect_data( co2_sensor, battery_sensor, gas_sensor)
     except (RuntimeError, OSError) as e:
         # Sometimes this is invalid PM2.5 checksum or timeout
         print(f"{type(e)}: {e}")
