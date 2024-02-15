@@ -23,9 +23,3 @@ This uses:
 Install CircuitPython on your deveice and get one of the examples on the Circuitpython site going. Then copy across the files in this repository.
 TODO: improve these instructions
 
-# Work in Progress
-
-Tasks:
-
-(x) display some readings on the display graphically
-(x) increase battery life by sleeping between sensor readings
