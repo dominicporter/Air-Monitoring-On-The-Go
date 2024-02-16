@@ -30,9 +30,17 @@ LOOP_TIME_S = 60
 def initialize_wifi_connection():
     # This is inside a function so that we can call it later if we need to reestablish
     # the connection.
-    wifi.radio.connect(
-        os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD")
-    )
+    wifi_creds = json.loads(os.getenv("WIFI_CREDS"))
+    # iterate throught each pair in wifi_creds and connect to the first one that works
+    for wifi_cred in wifi_creds:
+        print(f"Connecting to {wifi_cred[0]}")
+        try:
+            wifi.radio.connect(wifi_cred[0], wifi_cred[1])
+            # success!
+            break
+        except Exception as e:
+            print(f"Failed to connect to {wifi_cred[0]}: {e}")
+            continue
 
 
 initialize_wifi_connection()
