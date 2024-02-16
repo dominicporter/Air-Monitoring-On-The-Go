@@ -1,3 +1,4 @@
+import alarm
 import json
 import os
 import ssl
@@ -15,16 +16,15 @@ from adafruit_max1704x import MAX17048
 from adafruit_scd4x import SCD4X
 from adafruit_scd30 import SCD30
 from adafruit_sgp30 import Adafruit_SGP30 as SGP30
-# from adafruit_esp32s2tft import ESP32S2TFT
+from adafruit_esp32s2tft import ESP32S2TFT
 
 DEVICE_ID = os.getenv("DEVICE_ID")
 SUPABASE_POST_URL = os.getenv("SUPABASE_POST_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# This controls how often your device sends data to the database
 LOOP_TIME_S = 60
 
-# esp32s2tft = ESP32S2TFT(default_bg=0xFFFF00, scale=2, use_network=False)
+esp32s2tft = ESP32S2TFT(default_bg=0x000000, scale=2, use_network=False)
 
 # Prepare to use the internet 💫
 def initialize_wifi_connection():
@@ -51,7 +51,7 @@ requests = adafruit_requests.Session(pool, ssl.create_default_context())
 def initialize_sensors():
     """Initialize connections to each possible sensor, if connected"""
     i2c = busio.I2C(board.SCL, board.SDA)
-    
+
     try:
         co2_sensor = SCD4X(i2c)
         co2_sensor.start_periodic_measurement()
@@ -61,8 +61,9 @@ def initialize_sensors():
 
     try:
         gas_sensor = SGP30(i2c)
-        # gas_sensor.set_iaq_baseline(0x8973, 0x8AAE)
-        # gas_sensor.set_iaq_relative_humidity(celsius=22.1, relative_humidity=44)
+        #gas_sensor.set_iaq_baseline(35187, 35502)
+        #gas_sensor.set_iaq_relative_humidity(celsius=24.1, relative_humidity=26)
+        gas_sensor.iaq_measure()
     except Exception:
         print("No gas sensor found")
         gas_sensor = None
@@ -120,9 +121,13 @@ def post_to_db(sensor_data: dict):
 
 def collect_data( co2_sensor, battery_sensor, gas_sensor):
     """Get the latest data from the sensors, display it, and record it in the cloud."""
+    while not (co2_sensor and co2_sensor.data_ready):
+        print("CO2 sensor not ready, waiting")
+        time.sleep(10)
     # Python3 kwarg-style dict concatenation syntax doesn't seem to work in CircuitPython,
     # so we have to use mutation and update the dict as we go along
     all_sensor_data = {}
+    esp32s2tft.remove_all_text()
 
     if battery_sensor:
         all_sensor_data.update(
@@ -130,6 +135,9 @@ def collect_data( co2_sensor, battery_sensor, gas_sensor):
                 "battery_v": battery_sensor.cell_voltage,
                 "battery_pct": battery_sensor.cell_percent,
             }
+        )
+        esp32s2tft.add_text(
+            text="bat: "+str(round(battery_sensor.cell_percent)), text_position=(10, 10), text_scale=1, text_color=0xFF00FF
         )
 
     if co2_sensor and co2_sensor.data_ready:
@@ -140,6 +148,9 @@ def collect_data( co2_sensor, battery_sensor, gas_sensor):
                 "humidity_relative": co2_sensor.relative_humidity,
             }
         )
+        esp32s2tft.add_text(
+            text="co2 ppm: "+str(round(co2_sensor.CO2,1)), text_position=(10, 30), text_scale=1, text_color=0xFF00FF
+        )
 
     if gas_sensor:
         all_sensor_data.update(
@@ -148,6 +159,12 @@ def collect_data( co2_sensor, battery_sensor, gas_sensor):
                 "tvoc_ppb": gas_sensor.TVOC,
             }
         )
+        print("eCO2: "+str(gas_sensor.eCO2))
+        print("TVOC: "+str(gas_sensor.TVOC))
+        print("Ethanol: "+str(gas_sensor.Ethanol))
+        print("H2: "+str(gas_sensor.H2))
+        print("baseline_TVOC: "+str(gas_sensor.baseline_TVOC))
+        print("baseline_eCO2: "+str(gas_sensor.baseline_eCO2))
 
     print(all_sensor_data)
     post_to_db(all_sensor_data)
@@ -159,9 +176,6 @@ def collect_data( co2_sensor, battery_sensor, gas_sensor):
     gas_sensor
 ) = initialize_sensors()
 
-# esp32s2tft.add_text(
-#     text="ESP32-S2", text_position=(10, 10), text_scale=2, text_color=0xFF00FF
-# )
 
 while True:
     try:
