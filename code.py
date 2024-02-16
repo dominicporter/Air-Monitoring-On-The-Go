@@ -190,4 +190,12 @@ while True:
             microcontroller.on_next_reset(microcontroller.RunMode.NORMAL)
             microcontroller.reset()
 
-    time.sleep(LOOP_TIME_S)
+    time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + LOOP_TIME_S)
+
+
+    # Exit the program, and then deep sleep until the alarm wakes us.
+    if battery_sensor.cell_percent > 25:
+        time.sleep(LOOP_TIME_S)
+    else:
+        alarm.exit_and_deep_sleep_until_alarms(time_alarm)
+
